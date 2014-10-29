@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/ioutil"
@@ -9,10 +10,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var cfg *Config
 
 type RssFeed struct {
 	XMLName        xml.Name `xml:"channel"`
@@ -57,11 +61,45 @@ type RssEnclosure struct {
 	Type    string   `xml:"type,attr"`
 }
 
+type Config struct {
+	FeedURL   string `json:"feed_url"`
+	FeedTitle string `json:"feed_title"`
+	FeedDesc  string `json:"feed_description"`
+	FeedOwner string `json:"feed_owner"`
+}
+
+func ReadConfig() (*Config, error) {
+	homeDir := ""
+	usr, err := user.Current()
+	if err == nil {
+		homeDir = usr.HomeDir
+	}
+	conf := Config{}
+	for _, path := range []string{"/etc/podfy.conf", homeDir + "/.podfy.conf", "./podfy.conf"} {
+		file, err := os.Open(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		json.NewDecoder(file)
+		err = json.NewDecoder(file).Decode(&conf)
+		if err != nil {
+			return nil, err
+		}
+		return &conf, nil
+	}
+	return &conf, nil
+}
+
 func ToXML(feed *RssFeed) (string, error) {
 	data, err := xml.MarshalIndent(feed, "", "  ")
 	if err != nil {
 		return "", err
 	}
+
 	// strip empty line from default xml header
 	s := xml.Header[:len(xml.Header)-1] + string(data)
 	return s, nil
@@ -74,7 +112,17 @@ func formatTime(t time.Time) string {
 	return ""
 }
 
+func init() {
+	var err error
+	cfg, err = ReadConfig()
+	if err != nil {
+		log.Fatalf("Could not read config: %v", err)
+	}
+}
+
 func main() {
+	//TODO index.html
+
 	http.HandleFunc("/feed.xml", feedHandler)
 	http.HandleFunc("/add", addHandler)
 	http.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
@@ -91,6 +139,7 @@ func addHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Form["auth"][0] != "mak" {
 		fmt.Fprintln(w, "ERR: Auth token invaild")
+		return
 	}
 
 	url, err := url.Parse(r.Form["url"][0])
@@ -125,10 +174,10 @@ func feedHandler(w http.ResponseWriter, r *http.Request) {
 
 func createFeed() string {
 	feed := &RssFeed{
-		Title:          "jmoiron.net blog",
-		Link:           "http://jmoiron.net/blog",
-		Description:    "discussion about tech, footie, photos",
-		ManagingEditor: "Jason Moiron (jmoiron@jmoiron.net)",
+		Title:          cfg.FeedTitle,
+		Link:           cfg.FeedURL,
+		Description:    cfg.FeedDesc,
+		ManagingEditor: cfg.FeedOwner,
 		// PubDate:     time.Now(),
 	}
 
@@ -160,7 +209,7 @@ func createFeed() string {
 
 func createLink(filename string) string {
 	var Url *url.URL
-	Url, err := url.Parse("http://192.168.2.101:8080/files/")
+	Url, err := url.Parse(cfg.FeedURL + "/files/")
 	if err != nil {
 		panic("boom")
 	}
