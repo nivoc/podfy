@@ -18,6 +18,12 @@ import (
 
 var cfg *Config
 
+type Rss struct {
+	XMLName xml.Name `xml:"rss"`
+	Version string   `xml:"version,attr"` // required
+	RssFeed *RssFeed
+}
+
 type RssFeed struct {
 	XMLName        xml.Name `xml:"channel"`
 	Title          string   `xml:"title"`       // required
@@ -49,6 +55,7 @@ type RssItem struct {
 	Category    string   `xml:"category,omitempty"`
 	Comments    string   `xml:"comments,omitempty"`
 	Enclosure   *RssEnclosure
+	Image       *Thumbnail
 	Guid        string `xml:"guid,omitempty"`    // Id used
 	PubDate     string `xml:"pubDate,omitempty"` // created or updated
 	Source      string `xml:"source,omitempty"`
@@ -59,6 +66,11 @@ type RssEnclosure struct {
 	Url     string   `xml:"url,attr"`
 	Length  string   `xml:"length,attr"`
 	Type    string   `xml:"type,attr"`
+}
+
+type Thumbnail struct {
+	XMLName xml.Name `xml:"image"`
+	Url     string   `xml:"url"`
 }
 
 type Config struct {
@@ -94,7 +106,7 @@ func ReadConfig() (*Config, error) {
 	return &conf, nil
 }
 
-func ToXML(feed *RssFeed) (string, error) {
+func ToXML(feed *Rss) (string, error) {
 	data, err := xml.MarshalIndent(feed, "", "  ")
 	if err != nil {
 		return "", err
@@ -191,18 +203,27 @@ func createFeed() string {
 			continue
 		}
 
+		description := ""
+		descBuf, err := ioutil.ReadFile("./files/" + f.Name() + ".description")
+		fmt.Println(descBuf, err)
+		if err == nil {
+			description = string(descBuf)
+		}
+
 		feed.Items = append(feed.Items, &RssItem{
 			Title:       strings.TrimSuffix(f.Name(), ".mp4"),
 			Link:        createLink(f.Name()),
-			Description: "",
+			Description: description,
 			Enclosure: &RssEnclosure{Url: createLink(f.Name()),
 				Length: strconv.Itoa(int(f.Size())),
 				Type:   "video/mp4"},
+			Image:   &Thumbnail{Url: createLink(strings.TrimSuffix(f.Name(), ".mp4") + ".jpg")},
 			PubDate: formatTime(f.ModTime()),
 		})
 	}
 
-	s, _ := ToXML(feed)
+	rss20 := &Rss{RssFeed: feed, Version: "2.0"}
+	s, _ := ToXML(rss20)
 
 	return s
 }
