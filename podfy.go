@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"encoding/xml"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -43,6 +44,7 @@ type RssFeed struct {
 	Rating         string   `xml:"rating,omitempty"`
 	SkipHours      string   `xml:"skipHours,omitempty"`
 	SkipDays       string   `xml:"skipDays,omitempty"`
+	Image          *FeedImage
 	Items          []*RssItem
 }
 
@@ -55,7 +57,6 @@ type RssItem struct {
 	Category    string   `xml:"category,omitempty"`
 	Comments    string   `xml:"comments,omitempty"`
 	Enclosure   *RssEnclosure
-	Image       *Thumbnail
 	Guid        string `xml:"guid,omitempty"`    // Id used
 	PubDate     string `xml:"pubDate,omitempty"` // created or updated
 	Source      string `xml:"source,omitempty"`
@@ -68,16 +69,17 @@ type RssEnclosure struct {
 	Type    string   `xml:"type,attr"`
 }
 
-type Thumbnail struct {
+type FeedImage struct {
 	XMLName xml.Name `xml:"image"`
-	Url     string   `xml:"url"`
+	URL     string   `xml:"url"`
 }
 
 type Config struct {
-	FeedURL   string `json:"feed_url"`
-	FeedTitle string `json:"feed_title"`
-	FeedDesc  string `json:"feed_description"`
-	FeedOwner string `json:"feed_owner"`
+	FeedURL      string `json:"feed_url"`
+	FeedTitle    string `json:"feed_title"`
+	FeedDesc     string `json:"feed_description"`
+	FeedOwner    string `json:"feed_owner"`
+	FeedImageURL string `json:"feed_image_url"`
 }
 
 func ReadConfig() (*Config, error) {
@@ -126,7 +128,16 @@ func formatTime(t time.Time) string {
 
 func init() {
 	var err error
+
+	var feedURL = flag.String("feed_url", "", "the feed url")
+	flag.Parse()
+
 	cfg, err = ReadConfig()
+
+	if *feedURL != "" {
+		cfg.FeedURL = *feedURL
+	}
+
 	if err != nil {
 		log.Fatalf("Could not read config: %v", err)
 	}
@@ -134,12 +145,11 @@ func init() {
 
 func main() {
 	//TODO index.html
-
 	http.HandleFunc("/feed.xml", feedHandler)
 	http.HandleFunc("/add", addHandler)
 	http.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir("./files"))))
 
-	http.ListenAndServe(":8080", nil)
+	fmt.Println(http.ListenAndServe(":8080", nil))
 }
 
 func addHandler(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +200,7 @@ func createFeed() string {
 		Link:           cfg.FeedURL,
 		Description:    cfg.FeedDesc,
 		ManagingEditor: cfg.FeedOwner,
+		Image:          &FeedImage{URL: cfg.FeedImageURL},
 		// PubDate:     time.Now(),
 	}
 
@@ -217,7 +228,6 @@ func createFeed() string {
 			Enclosure: &RssEnclosure{Url: createLink(f.Name()),
 				Length: strconv.Itoa(int(f.Size())),
 				Type:   "video/mp4"},
-			Image:   &Thumbnail{Url: createLink(strings.TrimSuffix(f.Name(), ".mp4") + ".jpg")},
 			PubDate: formatTime(f.ModTime()),
 		})
 	}
